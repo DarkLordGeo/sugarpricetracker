@@ -25,9 +25,9 @@ from email.mime.text import MIMEText
 # CONFIG — fill these in
 # ---------------------------------------------------------------------------
 
-GMAIL_ADDRESS = "mr.ergeshidze@gmail.com"
-GMAIL_APP_PASSWORD = "vxyv tlyh plmz hxgm"
-TO_ADDRESS = "talaxadze08@gmail.com"
+GMAIL_ADDRESS = "your_email"
+GMAIL_APP_PASSWORD = "your_app_code"
+TO_ADDRESS = "address_email"
 
 PRODUCT_URL = "https://2nabiji.ge/ge/product/shaqari-zoge"
 

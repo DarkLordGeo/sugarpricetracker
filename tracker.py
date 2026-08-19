@@ -1,22 +1,19 @@
 """
 price_watch.py
 
-Scrapes a product's price/title from 2nabiji.ge, stores every price
-observation in a local SQLite database via SQLAlchemy, and only sends
-a styled HTML email via Gmail when the new price is the LOWEST ever
-recorded for that product.
+Scrapes a product's price/title from 2nabiji.ge and sends a styled
+HTML email via Gmail with the current price.
 
 SETUP (one-time):
 1. Go to https://myaccount.google.com/apppasswords
    (Requires 2-Step Verification enabled on your Google account.)
 2. Generate an "App Password" for "Mail".
-3. Put that 16-character app password below — NOT your normal Gmail password.
-   In real projects, load credentials from environment variables instead
-   of hardcoding them.
+3. Set GMAIL_ADDRESS / GMAIL_APP_PASSWORD / TO_ADDRESS as environment
+   variables (see .env.example) — never hardcode real credentials here.
 
 INSTALL:
-    pip install requests beautifulsoup4 sqlalchemy
-    (smtplib, email, re, json, datetime are all in Python's standard library)
+    pip install requests beautifulsoup4 python-dotenv
+    (smtplib, email, re, os are all in Python's standard library)
 
 RUN:
     python3 price_watch.py
@@ -29,10 +26,6 @@ import re
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from datetime import datetime, timezone
-
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, select, func
-from sqlalchemy.orm import declarative_base, sessionmaker
 
 # Loads variables from a local .env file if python-dotenv is installed and
 # a .env file is present. In GitHub Actions, secrets are already injected
@@ -51,34 +44,6 @@ GMAIL_APP_PASSWORD = os.environ["GMAIL_APP_PASSWORD"]
 TO_ADDRESS = os.environ["TO_ADDRESS"]
 
 PRODUCT_URL = "https://2nabiji.ge/ge/product/shaqari-zoge"
-
-DATABASE_URL = "sqlite:///price_history.db"
-
-
-# ---------------------------------------------------------------------------
-# DATABASE SETUP (SQLAlchemy)
-# ---------------------------------------------------------------------------
-Base = declarative_base()
-
-
-class PriceRecord(Base):
-    """One row per scrape — a full price history log per product URL."""
-    __tablename__ = "price_records"
-
-    id = Column(Integer, primary_key=True)
-    product_url = Column(String, nullable=False, index=True)
-    title = Column(String, nullable=False)
-    price = Column(Float, nullable=False)
-    image_url = Column(String, nullable=True)
-    scraped_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-
-    def __repr__(self):
-        return f"<PriceRecord {self.title!r} {self.price} @ {self.scraped_at}>"
-
-
-engine = create_engine(DATABASE_URL, echo=False)
-Base.metadata.create_all(engine)
-Session = sessionmaker(bind=engine)
 
 
 # ---------------------------------------------------------------------------
@@ -113,50 +78,6 @@ def fetchPrices(url: str = PRODUCT_URL) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# PRICE HISTORY / COMPARISON (SQLAlchemy)
-# ---------------------------------------------------------------------------
-def record_price_and_check_if_lowest(data: dict) -> bool:
-    """Saves the scraped price to the DB, then checks whether it's the
-    lowest price ever recorded for this product URL.
-
-    Returns True if this new price is a new all-time low (i.e. we should
-    send the email), False otherwise.
-    """
-    session = Session()
-    try:
-        # Lowest price recorded so far, BEFORE inserting the new row
-        previous_min = session.execute(
-            select(func.min(PriceRecord.price)).where(
-                PriceRecord.product_url == data["url"]
-            )
-        ).scalar()
-
-        # Insert this observation regardless, so we keep a full history
-        new_record = PriceRecord(
-            product_url=data["url"],
-            title=data["title"],
-            price=data["price"],
-            image_url=data["image_url"],
-        )
-        session.add(new_record)
-        session.commit()
-
-        if previous_min is None:
-            # First time we've ever seen this product — treat as a new low
-            print(f"📊 First recorded price: {data['price']:.2f} GEL")
-            return True
-
-        if data["price"] < previous_min:
-            print(f"📉 New lowest price! {data['price']:.2f} GEL (previous low: {previous_min:.2f} GEL)")
-            return True
-
-        print(f"➡️ Not a new low. Current: {data['price']:.2f} GEL, lowest so far: {previous_min:.2f} GEL")
-        return False
-    finally:
-        session.close()
-
-
-# ---------------------------------------------------------------------------
 # EMAIL BUILDING
 # ---------------------------------------------------------------------------
 def build_html_email(product_name: str, price: float, url: str, image_url: str = "") -> str:
@@ -178,7 +99,7 @@ def build_html_email(product_name: str, price: float, url: str, image_url: str =
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>New Lowest Price: {product_name}</title>
+  <title>Price Update: {product_name}</title>
 </head>
 <body style="margin:0; padding:0; background-color:#f2f4f6; font-family:'Segoe UI', Helvetica, Arial, sans-serif;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f2f4f6; padding:32px 0;">
@@ -193,7 +114,7 @@ def build_html_email(product_name: str, price: float, url: str, image_url: str =
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
                 <tr>
                   <td style="color:#ffffff; font-size:22px; font-weight:700; letter-spacing:0.3px;">
-                    🎉 New Lowest Price!
+                    🛒 Price Watch
                   </td>
                   <td align="right" style="color:#d9f4e6; font-size:13px;">
                     2NABIJI
@@ -220,7 +141,7 @@ def build_html_email(product_name: str, price: float, url: str, image_url: str =
                      style="background-color:#f7f9fa; border-radius:10px; padding:20px; margin-bottom:24px;">
                 <tr>
                   <td style="padding:0 20px;">
-                    <p style="margin:0; font-size:13px; color:#8a94a6;">New lowest price</p>
+                    <p style="margin:0; font-size:13px; color:#8a94a6;">Current price</p>
                     <p style="margin:4px 0 0 0; font-size:32px; font-weight:700; color:#11A149;">
                       {price:.2f} ₾
                     </p>
@@ -246,7 +167,7 @@ def build_html_email(product_name: str, price: float, url: str, image_url: str =
           <tr>
             <td style="padding:20px 32px; background-color:#f7f9fa; border-top:1px solid #eceef1;">
               <p style="margin:0; font-size:12px; color:#9aa4b2; line-height:1.5;">
-                You're receiving this because this hit a new all-time low price.
+                You're receiving this because you're tracking this product's price.
                 <br />
                 Sent automatically — no reply needed.
               </p>
@@ -292,13 +213,7 @@ def main():
     data = fetchPrices(PRODUCT_URL)
 
     if data["price"] is None or data["title"] is None:
-        print("⚠️ Could not extract price/title — skipping.")
-        return
-
-    is_new_low = record_price_and_check_if_lowest(data)
-
-    if not is_new_low:
-        print("No email sent — not a new lowest price.")
+        print("⚠️ Could not extract price/title — skipping email.")
         return
 
     html = build_html_email(
@@ -310,9 +225,9 @@ def main():
 
     send_html_email(
         to_address=TO_ADDRESS,
-        subject=f"🎉 New Lowest Price: {data['title']}",
+        subject=f"🛒 Price Update: {data['title']}",
         html_content=html,
-        plain_fallback=f"{data['title']} just hit a new lowest price: {data['price']:.2f} GEL. View: {data['url']}",
+        plain_fallback=f"{data['title']} is now {data['price']:.2f} GEL. View: {data['url']}",
     )
 
 

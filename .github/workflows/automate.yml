@@ -30,4 +30,4 @@ jobs:
           GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           TO_ADDRESS: ${{ secrets.TO_ADDRESS }}
-        run: python price_watch.py
+        run: python tracker.py

@@ -6,7 +6,7 @@ on:
     #   "0 */6 * * *"  -> every 6 hours
     #   "0 * * * *"    -> every hour
     #   "0 9 * * *"    -> once a day at 09:00 UTC
-    - cron: "0 */6 * * *"
+    - cron: "0 12 * * 1"
   workflow_dispatch: {}   # lets you trigger it manually from the Actions tab
 
 jobs:
@@ -30,4 +30,4 @@ jobs:
           GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           TO_ADDRESS: ${{ secrets.TO_ADDRESS }}
-        run: python price_watch.py
+        run: python track.py
